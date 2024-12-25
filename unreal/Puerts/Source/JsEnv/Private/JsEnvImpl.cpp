@@ -1128,6 +1128,14 @@ void FJsEnvImpl::NewStructByScriptStruct(const v8::FunctionCallbackInfo<v8::Valu
     {
         void* Ptr = FScriptStructWrapper::Alloc(ScriptStruct);
 
+        if(Info.Length() == 2)
+        {
+            if(void* StructPtr = reinterpret_cast<void*>(Info[1]->ToBigInt(Context).ToLocalChecked()->Uint64Value()))
+            {
+                ScriptStruct->CopyScriptStruct(Ptr, StructPtr);
+            }
+        }
+
         Info.GetReturnValue().Set(
             FV8Utils::IsolateData<IObjectMapper>(Isolate)->FindOrAddStruct(Isolate, Context, ScriptStruct, Ptr, false));
     }
