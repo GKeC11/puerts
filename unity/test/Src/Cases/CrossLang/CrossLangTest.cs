@@ -4,6 +4,24 @@ using System.Runtime.InteropServices;
 
 namespace Puerts.UnitTest
 {
+    [UnityEngine.Scripting.Preserve]
+    public class TestGC
+    {
+        public static int ObjCount = 0;
+
+        [UnityEngine.Scripting.Preserve]
+        public TestGC()
+        {
+            ++ObjCount;
+        }
+
+        [UnityEngine.Scripting.Preserve]
+
+        ~TestGC()
+        {
+            --ObjCount;
+        }
+    }
 
     public class TestObject
     {
@@ -39,6 +57,34 @@ namespace Puerts.UnitTest
             value = val;
             value2 = 0;
             value3 = 0;
+        }
+    }
+    [UnityEngine.Scripting.Preserve]
+    public struct TestStruct2
+    {
+        public int v1;
+        public int v2;
+        public string v3;
+
+        [UnityEngine.Scripting.Preserve]
+        public TestStruct2(int p1, int p2, string p3)
+        {
+            v1 = p1;
+            v2 = p2;
+            v3 = p3;
+        }
+
+        [UnityEngine.Scripting.Preserve]
+        public override string ToString()
+        {
+            return v1 + ":" + v2 + ":" + v3;
+        }
+
+
+        [UnityEngine.Scripting.Preserve]
+        public string GetString()
+        {
+            return v1 + ":" + v2 + ":" + v3;
         }
     }
     [StructLayout(LayoutKind.Sequential)]
@@ -842,6 +888,24 @@ namespace Puerts.UnitTest
             jsEnv.Tick();
         }
         [Test]
+        public void TestStructAccess()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            // preload
+            jsEnv.Eval(@"
+                 (function() {
+                     return CS.Puerts.UnitTest.TestStruct2
+                 })()
+            ");
+            var res = jsEnv.Eval<string>(@"
+                 (function() {
+                     const s1 = new CS.Puerts.UnitTest.TestStruct2(5345, 3214, 'fqpziq');
+                     return s1.ToString();
+                 })()
+            ");
+            Assert.AreEqual("5345:3214:fqpziq", res);
+        }
+        [Test]
         public void NullableNativeStructInstanceTest()
         {
             var jsEnv = UnitTestEnv.GetEnv();
@@ -993,6 +1057,52 @@ namespace Puerts.UnitTest
             {
                 callback();
             });
+        }
+
+        [Test]
+        public void TestJsGC()
+        {
+#if PUERTS_GENERAL
+            var jsEnv = new JsEnv(new TxtLoader());
+#else
+            var jsEnv = new JsEnv(new DefaultLoader());
+#endif
+            var objCount = jsEnv.Eval<int>(@"
+            const randomCount = Math.floor(Math.random() * 50) + 1;
+
+            var objs = []
+            for (let i = 0; i < randomCount; i++) {
+                objs.push(new CS.Puerts.UnitTest.TestGC())
+            }
+            randomCount;
+            ");
+
+            if (jsEnv.Backend is BackendV8)
+            {
+                jsEnv.Eval("gc()");
+            }
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            Assert.AreEqual(objCount, TestGC.ObjCount);
+            Assert.True(objCount > 0);
+
+            jsEnv.Eval("objs = undefined");
+
+            if (jsEnv.Backend is BackendV8)
+            {
+                jsEnv.Eval("gc()");
+            }
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            Assert.AreEqual(0, TestGC.ObjCount);
+
+            jsEnv.Dispose();
         }
     }
 }
