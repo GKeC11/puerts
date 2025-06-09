@@ -135,8 +135,14 @@ namespace PUERTS_NAMESPACE
         );
         
 #ifdef WITH_IL2CPP_OPTIMIZATION
-        CppObjectMapper.Initialize(Isolate, Context);
-        Isolate->SetData(MAPPER_ISOLATE_DATA_POS, static_cast<ICppObjectMapper*>(&CppObjectMapper));
+#ifdef WITH_QUICKJS
+        auto ctx = Context->context_;
+        CppObjectMapperQjs.Initialize(ctx);
+#endif
+#ifdef WITH_V8
+        CppObjectMapperV8.Initialize(Isolate, Context);
+        Isolate->SetData(MAPPER_ISOLATE_DATA_POS, static_cast<ICppObjectMapper*>(&CppObjectMapperV8));
+#endif
 #endif
 
         BackendEnv.StartPolling();
@@ -208,7 +214,12 @@ namespace PUERTS_NAMESPACE
         ResultInfo.Result.Reset();
 
 #ifdef WITH_IL2CPP_OPTIMIZATION
-        CppObjectMapper.UnInitialize(MainIsolate);
+#ifdef WITH_QUICKJS
+        CppObjectMapperQjs.Cleanup();
+#endif
+#ifdef WITH_V8
+        CppObjectMapperV8.UnInitialize(MainIsolate);
+#endif
 #endif
 
         for (int i = 0; i < CallbackWithFinalizeInfos.size(); ++i)

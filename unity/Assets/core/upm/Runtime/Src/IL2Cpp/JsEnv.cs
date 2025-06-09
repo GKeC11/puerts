@@ -6,7 +6,7 @@
 */
 
 #if UNITY_2020_1_OR_NEWER
-#if PUERTS_IL2CPP_OPTIMIZATION && ENABLE_IL2CPP
+#if (!PUERTS_DISABLE_IL2CPP_OPTIMIZATION && !UNITY_IPHONE || PUERTS_IL2CPP_OPTIMIZATION) && ENABLE_IL2CPP
 
 using System;
 using System.Collections.Generic;
@@ -31,6 +31,12 @@ namespace Puerts
         IntPtr nativeJsEnv;
         IntPtr nativePesapiEnv;
         IntPtr nativeScriptObjectsRefsMgr;
+        
+        internal IntPtr isolate {
+            get {
+                return nativeJsEnv;
+            }
+        }
 
         private Func<string, JSObject> moduleExecutor;
 
@@ -39,6 +45,8 @@ namespace Puerts
         protected int debugPort;
 
         public Backend Backend;
+        
+        PuertsIl2cpp.ObjectPool objectPool = new PuertsIl2cpp.ObjectPool();
 
         [UnityEngine.Scripting.Preserve]
         private void Preserver() 
@@ -54,12 +62,15 @@ namespace Puerts
 
         public JsEnv(): this(new DefaultLoader(), -1) {}
 
-        public JsEnv(ILoader loader, int debugPort = -1)
+        public JsEnv(ILoader loader, int debugPort = -1, BackendType backend = BackendType.Auto, IntPtr externalRuntime = default(IntPtr), IntPtr externalContext = default(IntPtr))
         {
             this.loader = loader;
-            
+            disposed = true;
             if (!isInitialized)
             {
+#if !UNITY_EDITOR && UNITY_WEBGL
+                PuertsDLL.InitPuertsWebGL();
+#endif
                 lock (jsEnvs)
                 {
                     if (!isInitialized)
@@ -80,11 +91,42 @@ namespace Puerts
                     }
                 }
             }
+#if UNITY_WEBGL
+            else
+            {
+                throw new InvalidOperationException("more than one JsEnv instance is not supported in WebGL");
+            }
+#endif
 
-            apis = Puerts.NativeAPI.GetFFIApi();
-            nativeJsEnv = Puerts.PuertsDLL.CreateJSEngine(0);
-            nativePesapiEnv = Puerts.NativeAPI.GetPapiEnvRef(nativeJsEnv);
-            nativeScriptObjectsRefsMgr = Puerts.NativeAPI.InitialPapiEnvRef(apis, nativePesapiEnv);
+            nativeJsEnv = Puerts.PuertsDLL.CreateJSEngine((int)backend);
+            if (nativeJsEnv == IntPtr.Zero)
+            {
+                throw new InvalidProgramException("create jsengine fail for " + backend);
+            }
+            int libBackend = Puerts.PuertsDLL.GetLibBackend(nativeJsEnv);
+            if (libBackend == 2)
+            {
+                apis = Puerts.NativeAPI.GetQjsFFIApi();
+                nativePesapiEnv = Puerts.NativeAPI.GetQjsPapiEnvRef(nativeJsEnv);
+            }
+            else
+            {
+#if UNITY_WEBGL
+                apis = Puerts.NativeAPI.GetWebGLFFIApi();
+                nativePesapiEnv = Puerts.NativeAPI.GetWebGLPapiEnvRef(nativeJsEnv);
+                Puerts.NativeAPI.PreservePuertsCPP();
+#else
+                apis = Puerts.NativeAPI.GetV8FFIApi();
+                nativePesapiEnv = Puerts.NativeAPI.GetV8PapiEnvRef(nativeJsEnv);
+#endif
+            }
+            if (nativePesapiEnv == IntPtr.Zero)
+            {
+                throw new InvalidProgramException("create jsengine fail for " + backend);
+            }
+            disposed = false;
+            var objectPoolType = typeof(PuertsIl2cpp.ObjectPool);
+            nativeScriptObjectsRefsMgr = Puerts.NativeAPI.InitialPapiEnvRef(apis, nativePesapiEnv, objectPool, objectPoolType.GetMethod("Add"), objectPoolType.GetMethod("Remove"));
 
             Puerts.NativeAPI.SetObjectToGlobal(apis, nativePesapiEnv, "jsEnv", this);
 
@@ -107,19 +149,21 @@ namespace Puerts
             }
 #endif
 
-            if (Puerts.PuertsDLL.GetLibBackend(nativeJsEnv) == 0) 
+            if (libBackend == 0) 
                 Backend = new BackendV8(this);
-            else if (Puerts.PuertsDLL.GetLibBackend(nativeJsEnv) == 1)
+            else if (libBackend == 1)
                 Backend = new BackendNodeJS(this);
-            else if (Puerts.PuertsDLL.GetLibBackend(nativeJsEnv) == 2)
+            else if (libBackend == 2)
                 Backend = new BackendQuickJS(this);
 
             if (debugPort != -1) {
                 Puerts.PuertsDLL.CreateInspector(nativeJsEnv, debugPort);    
             }
+#if !UNITY_WEBGL
             string debugpath;
             string context = loader.ReadFile("puerts/esm_bootstrap.cjs", out debugpath);
             Eval(context, debugpath);
+#endif
             ExecuteModule("puerts/init_il2cpp.mjs");
             ExecuteModule("puerts/log.mjs");
             ExecuteModule("puerts/csharp.mjs");
@@ -164,7 +208,7 @@ namespace Puerts
         }
         
         [MonoPInvokeCallback(typeof(Puerts.NativeAPI.LogCallback))]
-        private static void LogCallback(string msg)
+        public static void LogCallback(string msg)
         {
 #if PUERTS_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
 #else
@@ -173,7 +217,7 @@ namespace Puerts
         }
 
         [MonoPInvokeCallback(typeof(Puerts.NativeAPI.LogCallback))]
-        private static void LogWarningCallback(string msg)
+        public static void LogWarningCallback(string msg)
         {
 #if PUERTS_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
 #else
@@ -182,7 +226,7 @@ namespace Puerts
         }
 
         [MonoPInvokeCallback(typeof(Puerts.NativeAPI.LogCallback))]
-        private static void LogErrorCallback(string msg)
+        public static void LogErrorCallback(string msg)
         {
 #if PUERTS_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
 #else
@@ -248,12 +292,12 @@ namespace Puerts
 
         public void Eval(string chunk, string chunkName = "chunk")
         {
-            Puerts.NativeAPI.EvalInternal(apis, nativePesapiEnv, System.Text.Encoding.UTF8.GetBytes(chunk + '\0'), chunkName, null);
+            Puerts.NativeAPI.EvalInternal(apis, nativePesapiEnv, System.Text.Encoding.UTF8.GetBytes(chunk), chunkName, null);
         }
 
         public T Eval<T>(string chunk, string chunkName = "chunk")
         {
-            return (T)Puerts.NativeAPI.EvalInternal(apis, nativePesapiEnv, System.Text.Encoding.UTF8.GetBytes(chunk + '\0'), chunkName, typeof(T));
+            return (T)Puerts.NativeAPI.EvalInternal(apis, nativePesapiEnv, System.Text.Encoding.UTF8.GetBytes(chunk), chunkName, typeof(T));
         }
         
         Func<string, Puerts.JSObject> GetModuleExecutor()
@@ -271,6 +315,8 @@ namespace Puerts
                 throw new Exception("T must be Puerts.JSObject when getting the module namespace");
             }
             JSObject jso = GetModuleExecutor()(specifier);
+            
+            if (exportee == "") return (T)(object)jso;
             
             return jso.Get<T>(exportee);
         }
@@ -327,6 +373,13 @@ namespace Puerts
             lock (this)
             {
                 if (disposed) return;
+                
+                // void JS_FreeRuntime(JSRuntime *): assertion "list_empty(&rt->gc_obj_list)" failed in android
+                TickHandler = null;
+                moduleExecutor = null;
+                System.GC.Collect();
+                System.GC.WaitForPendingFinalizers();
+                
                 Puerts.NativeAPI.CleanupPapiEnvRef(apis, nativePesapiEnv);
                 Puerts.PuertsDLL.DestroyJSEngine(nativeJsEnv);
                 Puerts.NativeAPI.DestroyJSEnvPrivate(nativeScriptObjectsRefsMgr);

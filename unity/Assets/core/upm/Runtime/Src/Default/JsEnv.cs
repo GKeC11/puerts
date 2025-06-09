@@ -5,7 +5,7 @@
 * This file is subject to the terms and conditions defined in file 'LICENSE', which is part of this source code package.
 */
 
-#if !PUERTS_IL2CPP_OPTIMIZATION || !ENABLE_IL2CPP
+#if PUERTS_DISABLE_IL2CPP_OPTIMIZATION || (!PUERTS_IL2CPP_OPTIMIZATION && UNITY_IPHONE) || !ENABLE_IL2CPP
 
 using System;
 using System.Linq;
@@ -20,13 +20,6 @@ namespace Puerts
 {
     public delegate void JSFunctionCallback(IntPtr isolate, IntPtr info, IntPtr self, int argumentsLen);
     public delegate object JSConstructorCallback(IntPtr isolate, IntPtr info, int argumentsLen);
-
-    public enum BackendType: int
-    {
-        V8 = 0,
-        Node = 1,
-        QuickJS = 2
-    }
 
     public class JsEnv : IDisposable
     {
@@ -87,29 +80,32 @@ namespace Puerts
         internal Action OnDispose;
 
         public JsEnv() 
-            : this(new DefaultLoader(), -1, BackendType.V8, IntPtr.Zero, IntPtr.Zero)
+            : this(new DefaultLoader(), -1, BackendType.Auto, IntPtr.Zero, IntPtr.Zero)
         {
         }
 
         public JsEnv(ILoader loader, int debugPort = -1)
-             : this(loader, debugPort, BackendType.V8, IntPtr.Zero, IntPtr.Zero)
+             : this(loader, debugPort, BackendType.Auto, IntPtr.Zero, IntPtr.Zero)
         {
         }
 
         public JsEnv(ILoader loader, IntPtr externalRuntime, IntPtr externalContext)
-            : this(loader, -1, BackendType.V8, externalRuntime, externalContext)
+            : this(loader, -1, BackendType.Auto, externalRuntime, externalContext)
         {
         }
 
         public JsEnv(ILoader loader, int debugPort, BackendType backend, IntPtr externalRuntime, IntPtr externalContext)
         {
-            const int libVersionExpect = 34;
+#if !UNITY_EDITOR && UNITY_WEBGL
+            if (jsEnvs.Count == 0) PuertsDLL.InitPuertsWebGL();
+#endif
+            const int libVersionExpect = 35;
             int libVersion = PuertsDLL.GetApiLevel();
             if (libVersion != libVersionExpect)
             {
                 throw new InvalidProgramException("expect lib version " + libVersionExpect + ", but got " + libVersion);
             }
-            // PuertsDLL.SetLogCallback(LogCallback, LogWarningCallback, LogErrorCallback);
+            PuertsDLL.SetLogCallback(LogCallback, LogWarningCallback, LogErrorCallback);
             this.loader = loader;
             this.loaderCanCheckESM = loader is IModuleChecker;
             
@@ -121,10 +117,19 @@ namespace Puerts
             {
                 isolate = PuertsDLL.CreateJSEngine((int)backend);
             }
-            
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (PuertsDLL.GetLibBackend(isolate) != 2 && jsEnvs.Count > 0)
+            {
+                disposed = true;
+                throw new InvalidOperationException("more than one JsEnv instance is not supported in WebGL");
+            }
+#endif
+
             if (isolate == IntPtr.Zero)
             {
-                throw new InvalidProgramException("create jsengine fail");
+                disposed = true;
+                throw new InvalidProgramException("create jsengine fail for " + backend);
             }
             lock (jsEnvs)
             {
@@ -866,32 +871,32 @@ namespace Puerts
         }
 #endif
 
-        //         [MonoPInvokeCallback(typeof(LogCallback))]
-        //         private static void LogCallback(string msg)
-        //         {
-        // #if PUERTS_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
-        // #else
-        //             UnityEngine.Debug.Log(msg);
-        // #endif
-        //         }
+        [MonoPInvokeCallback(typeof(LogCallback))]
+        public static void LogCallback(string msg)
+        {
+#if PUERTS_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
+#else
+            UnityEngine.Debug.Log(msg);
+#endif
+        }
 
-        //         [MonoPInvokeCallback(typeof(LogCallback))]
-        //         private static void LogWarningCallback(string msg)
-        //         {
-        // #if PUERTS_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
-        // #else
-        //             UnityEngine.Debug.Log(msg);
-        // #endif
-        //         }
+        [MonoPInvokeCallback(typeof(LogCallback))]
+        public static void LogWarningCallback(string msg)
+        {
+#if PUERTS_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
+#else
+            UnityEngine.Debug.Log(msg);
+#endif
+        }
 
-        //         [MonoPInvokeCallback(typeof(LogCallback))]
-        //         private static void LogErrorCallback(string msg)
-        //         {
-        // #if PUERTS_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
-        // #else
-        //             UnityEngine.Debug.Log(msg);
-        // #endif
-        //         }
+        [MonoPInvokeCallback(typeof(LogCallback))]
+        public static void LogErrorCallback(string msg)
+        {
+#if PUERTS_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
+#else
+            UnityEngine.Debug.Log(msg);
+#endif
+        }
 
         ~JsEnv()
         {

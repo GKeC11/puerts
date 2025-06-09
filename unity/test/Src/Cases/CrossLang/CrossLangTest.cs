@@ -23,6 +23,36 @@ namespace Puerts.UnitTest
         }
     }
 
+    [UnityEngine.Scripting.Preserve]
+    public struct TakeTestGC
+    {
+        [UnityEngine.Scripting.Preserve]
+        public TakeTestGC(int n)
+        {
+            testGC = new TestGC();
+        }
+
+        public TestGC testGC;
+    }
+
+    [UnityEngine.Scripting.Preserve]
+    public class OverloadTestObject
+    {
+        public static int LastCall = 999;
+
+        [UnityEngine.Scripting.Preserve]
+        public void WithObjectParam(string str)
+        {
+            LastCall = 1;
+        }
+
+        [UnityEngine.Scripting.Preserve]
+        public void WithObjectParam(object str)
+        {
+            LastCall = 2;
+        }
+    }
+
     public class TestObject
     {
         public int value;
@@ -133,6 +163,12 @@ namespace Puerts.UnitTest
         {
             return TestEnum.B;
         }
+
+        [UnityEngine.Scripting.Preserve]
+        public static void TestEnumCheck(string a, TestEnum e = TestEnum.A, int b = 10) // 有默认值会促使其检查参数类型
+        {
+
+        }
     }
     public unsafe class TestHelper
     {
@@ -188,7 +224,7 @@ namespace Puerts.UnitTest
 
         public TestHelper()
         {
-#if UNITY_EDITOR || !PUERTS_IL2CPP_OPTIMIZATION
+#if UNITY_EDITOR || PUERTS_DISABLE_IL2CPP_OPTIMIZATION || (!PUERTS_IL2CPP_OPTIMIZATION && UNITY_IPHONE)
             var env = UnitTestEnv.GetEnv();
             env.UsingFunc<int>();
             env.UsingFunc<int, int>();
@@ -278,6 +314,30 @@ namespace Puerts.UnitTest
             AssertAndPrint("CSGetStringReturnFromJS", JSValueHandler(initialValue + "d"), "abcde");
             outArg = "abcdef";
             return "abcdefg";
+        }
+
+        public string UnicodeStr(string str)
+        {
+            AssertAndPrint("UnicodeStr", str, "你好");
+            return "小马哥";
+        }
+
+        public string PassStr(string str)
+        {
+            return str;
+        }
+        public void PassStr(string str, int a)
+        {
+
+        }
+
+        public TestHelper PassObj(TestHelper test)
+        {
+            return test;
+        }
+
+        public void PassObj(TestHelper test, int a)
+        {
         }
 
         public string stringTestField = null;
@@ -736,6 +796,8 @@ namespace Puerts.UnitTest
                     TestHelper.stringTestFieldStatic = 'Puer'
                     TestHelper.stringTestPropStatic = 'Puer'
                     testHelper.StringTestCheckMemberValue();
+                    const ustr = testHelper.UnicodeStr('你好');
+                    assertAndPrint('UnicodeStr', ustr, '小马哥');
                 })()
             ");
             jsEnv.Tick();
@@ -1023,7 +1085,18 @@ namespace Puerts.UnitTest
             Assert.AreEqual("213 1 213", ret);
             jsEnv.Tick();
         }
-        
+
+        [Test]
+        public void EnumNameTest()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            var ret = jsEnv.Eval<string>(@"
+                    CS.Puerts.UnitTest.TestEnum[CS.Puerts.UnitTest.TestEnum.A];
+            ");
+            Assert.AreEqual("A", ret);
+            jsEnv.Tick();
+        }
+
         [Test]
         public void AccessExplicitnterfaceImplementation()
         {
@@ -1042,6 +1115,7 @@ namespace Puerts.UnitTest
             jsEnv.Tick();
         }
 
+#if !UNITY_WEBGL || UNITY_EDITOR
         [Test]
         public void CallDelegateAfterJsEnvDisposed()
         {
@@ -1059,6 +1133,7 @@ namespace Puerts.UnitTest
             });
         }
 
+        //看上去GC.Collect()对webgl无效，先去掉
         [Test]
         public void TestJsGC()
         {
@@ -1067,6 +1142,7 @@ namespace Puerts.UnitTest
 #else
             var jsEnv = new JsEnv(new DefaultLoader());
 #endif
+            TestGC.ObjCount = 0;
             var objCount = jsEnv.Eval<int>(@"
             const randomCount = Math.floor(Math.random() * 50) + 1;
 
@@ -1103,6 +1179,173 @@ namespace Puerts.UnitTest
             Assert.AreEqual(0, TestGC.ObjCount);
 
             jsEnv.Dispose();
+        }
+
+        [Test]
+        public void TestJsStructGC()
+        {
+#if PUERTS_GENERAL
+            var jsEnv = new JsEnv(new TxtLoader());
+#else
+            var jsEnv = new JsEnv(new DefaultLoader());
+#endif
+            TestGC.ObjCount = 0;
+            var objCount = jsEnv.Eval<int>(@"
+            const randomCount = Math.floor(Math.random() * 50) + 1;
+
+            var objs = []
+            for (let i = 0; i < randomCount; i++) {
+                objs.push(new CS.Puerts.UnitTest.TakeTestGC(1))
+            }
+            randomCount;
+            ");
+
+            if (jsEnv.Backend is BackendV8)
+            {
+                jsEnv.Eval("gc()");
+            }
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            Assert.AreEqual(objCount, TestGC.ObjCount);
+            Assert.True(objCount > 0);
+
+            jsEnv.Eval("objs = undefined");
+
+            if (jsEnv.Backend is BackendV8)
+            {
+                jsEnv.Eval("gc()");
+            }
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            Assert.AreEqual(0, TestGC.ObjCount);
+
+            jsEnv.Dispose();
+        }
+#endif
+
+        [Test]
+        public void OverloadTest()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+
+            jsEnv.Eval(@"
+            (function() {
+            const o = new CS.Puerts.UnitTest.OverloadTestObject();
+            o.WithObjectParam('tt');
+            console.log('call with string ');
+            }) ();
+            ");
+
+            Assert.AreEqual(1, OverloadTestObject.LastCall);
+
+            jsEnv.Eval(@"
+            (function() {
+            const o = new CS.Puerts.UnitTest.OverloadTestObject();
+            o.WithObjectParam(888);
+             console.log('call with int ');
+            }) ();
+            ");
+
+            Assert.AreEqual(2, OverloadTestObject.LastCall);
+        }
+
+        [Test]
+        public void FuncAsJsObject()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            var jso = jsEnv.Eval<JSObject>(@"
+            (function() {
+                function t(){}
+                return t;
+            }) ();
+            ");
+            Assert.True(jso != null);
+        }
+
+        [Test]
+        public void EnumParamCheck() // https://github.com/Tencent/puerts/issues/2018
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            jsEnv.Eval(@"
+            (function() {
+                CS.Puerts.UnitTest.CrossLangTestHelper.TestEnumCheck('a', 1, 2);
+            }) ();
+            ");
+        }
+
+        [Test]
+        public void PassNullTest()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            jsEnv.Eval(@"
+                (function() {
+                    const TestHelper = CS.Puerts.UnitTest.TestHelper;
+                    const assertAndPrint = TestHelper.AssertAndPrint.bind(TestHelper);
+
+                    const testHelper = TestHelper.GetInstance();
+                    testHelper.PassStr(null);
+                    testHelper.PassStr(undefined);
+                    testHelper.PassObj(null);
+                    testHelper.PassObj(undefined);
+                    
+                })()
+            ");
+            Assert.Catch(() =>
+            {
+                jsEnv.Eval(@"
+                (function() {
+                    const TestHelper = CS.Puerts.UnitTest.TestHelper;
+                    const assertAndPrint = TestHelper.AssertAndPrint.bind(TestHelper);
+
+                    const testHelper = TestHelper.GetInstance();
+                    testHelper.PassObj('aaaaaa');
+                    
+                })()
+            ");
+            }, "invalid arguments to PassObj");
+            jsEnv.Tick();
+        }
+
+        [Test]
+        public void CastJsFunctionAsTwoDiffDelegate()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            jsEnv.UsingAction<int>();
+            jsEnv.UsingAction<string, long>();
+            var cb1 = jsEnv.Eval<Action<int>>(@"
+            function __GCB(a, b) {
+              __GMSG = `${a}${b}`
+            }
+            __GCB;
+            ");
+            cb1(1);
+            Assert.AreEqual("1undefined", jsEnv.Eval<string>("__GMSG"));
+            var cb2 = jsEnv.Eval<Action<string, long>>("__GCB");
+            cb2("hello", 999);
+            Assert.AreEqual("hello999", jsEnv.Eval<string>("__GMSG"));
+        }
+
+        public delegate string NotGenericTestFunc(long t);
+
+        [Test]
+        public void NotGenericTest()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            jsEnv.UsingFunc<long, string>();
+            var cb1 = jsEnv.Eval<NotGenericTestFunc>(@"
+            function __NGTF(a) {
+              return `${a}`
+            }
+            __NGTF;
+            ");
+            ;
+            Assert.AreEqual("9999", cb1(9999));
         }
     }
 }

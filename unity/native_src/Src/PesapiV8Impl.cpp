@@ -5,19 +5,22 @@
  * be subject to their corresponding license terms. This file is subject to the terms and conditions defined in file 'LICENSE',
  * which is part of this source code package.
  */
-
-#ifndef WITH_QUICKJS
-
+ 
 #include "pesapi.h"
-#include "DataTransfer.h"
+#include "TypeInfo.hpp"
+#include "PString.h"
 #include "JSClassRegister.h"
-#include "ObjectMapper.h"
 
 #include <string>
 #include <sstream>
 #include <vector>
 #include <cstring>
-#include "PString.h"
+
+#ifdef WITH_V8
+
+#include "DataTransfer.h"
+#include "ObjectMapper.h"
+
 
 struct pesapi_env_ref__
 {
@@ -145,6 +148,13 @@ pesapi_value pesapi_create_string_utf8(pesapi_env env, const char* str, size_t l
         v8::String::NewFromUtf8(context->GetIsolate(), str, v8::NewStringType::kNormal, static_cast<int>(length)).ToLocalChecked());
 }
 
+pesapi_value pesapi_create_string_utf16(pesapi_env env, const uint16_t* str, size_t length)
+{
+    auto context = v8impl::V8LocalContextFromPesapiEnv(env);
+    return v8impl::PesapiValueFromV8LocalValue(
+        v8::String::NewFromTwoByte(context->GetIsolate(), str, v8::NewStringType::kNormal, static_cast<int>(length)).ToLocalChecked());
+}
+
 pesapi_value pesapi_create_binary(pesapi_env env, void* bin, size_t length)
 {
     auto context = v8impl::V8LocalContextFromPesapiEnv(env);
@@ -237,6 +247,24 @@ const char* pesapi_get_value_string_utf8(pesapi_env env, pesapi_value pvalue, ch
     {
         auto str = value->ToString(context).ToLocalChecked();
         str->WriteUtf8(context->GetIsolate(), buf, *bufsize);
+    }
+    return buf;
+}
+
+const uint16_t* pesapi_get_value_string_utf16(pesapi_env env, pesapi_value pvalue, uint16_t* buf, size_t* bufsize)
+{
+    auto context = v8impl::V8LocalContextFromPesapiEnv(env);
+    auto value = v8impl::V8LocalValueFromPesapiValue(pvalue);
+
+    if (buf == nullptr)
+    {
+        auto str = value->ToString(context).ToLocalChecked();
+        *bufsize = str->Length();
+    }
+    else
+    {
+        auto str = value->ToString(context).ToLocalChecked();
+        str->Write(context->GetIsolate(), buf, 0, *bufsize);
     }
     return buf;
 }
@@ -437,16 +465,16 @@ PESAPI_EXTERN pesapi_env pesapi_get_env(pesapi_callback_info pinfo)
     return v8impl::PesapiEnvFromV8LocalContext((*info).GetIsolate()->GetCurrentContext());
 }
 
-pesapi_value pesapi_get_this(pesapi_callback_info pinfo)
+void* pesapi_get_native_holder_ptr(pesapi_callback_info pinfo)
 {
     auto info = reinterpret_cast<const v8::FunctionCallbackInfo<v8::Value>*>(pinfo);
-    return v8impl::PesapiValueFromV8LocalValue((*info).This());
+    return puerts::DataTransfer::GetPointerFast<void>((*info).Holder());
 }
 
-pesapi_value pesapi_get_holder(pesapi_callback_info pinfo)
+const void* pesapi_get_native_holder_typeid(pesapi_callback_info pinfo)
 {
     auto info = reinterpret_cast<const v8::FunctionCallbackInfo<v8::Value>*>(pinfo);
-    return v8impl::PesapiValueFromV8LocalValue((*info).Holder());
+    return puerts::DataTransfer::GetPointerFast<void>((*info).Holder(), 1);
 }
 
 void* pesapi_get_userdata(pesapi_callback_info pinfo)
@@ -825,6 +853,7 @@ pesapi_ffi g_pesapi_ffi {
     &pesapi_create_uint64,
     &pesapi_create_double,
     &pesapi_create_string_utf8,
+    &pesapi_create_string_utf16,
     &pesapi_create_binary,
     &pesapi_create_array,
     &pesapi_create_object,
@@ -837,6 +866,7 @@ pesapi_ffi g_pesapi_ffi {
     &pesapi_get_value_uint64,
     &pesapi_get_value_double,
     &pesapi_get_value_string_utf8,
+    &pesapi_get_value_string_utf16,
     &pesapi_get_value_binary,
     &pesapi_get_array_length,
     &pesapi_is_null,
@@ -863,8 +893,8 @@ pesapi_ffi g_pesapi_ffi {
     &pesapi_get_args_len,
     &pesapi_get_arg,
     &pesapi_get_env,
-    &pesapi_get_this,
-    &pesapi_get_holder,
+    &pesapi_get_native_holder_ptr,
+    &pesapi_get_native_holder_typeid,
     &pesapi_get_userdata,
     &pesapi_add_return,
     &pesapi_throw_by_string,
@@ -901,6 +931,8 @@ pesapi_ffi g_pesapi_ffi {
 };
 
 }    // namespace v8impl
+
+#endif
 
 EXTERN_C_START
 
@@ -1139,5 +1171,3 @@ pesapi_func_ptr reg_apis[] = {(pesapi_func_ptr) &pesapi_alloc_type_infos, (pesap
     (pesapi_func_ptr) &pesapi_on_class_not_found, (pesapi_func_ptr) &pesapi_class_type_info,
     (pesapi_func_ptr) &pesapi_find_type_id};
 MSVC_PRAGMA(warning(pop))
-
-#endif

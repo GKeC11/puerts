@@ -10,7 +10,7 @@ using System.Data;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-#if PUERTS_IL2CPP_OPTIMIZATION && ENABLE_IL2CPP
+#if (!PUERTS_DISABLE_IL2CPP_OPTIMIZATION && !UNITY_IPHONE || PUERTS_IL2CPP_OPTIMIZATION) && ENABLE_IL2CPP
 
 namespace Puerts
 {
@@ -329,38 +329,6 @@ namespace Puerts
                     if (type.IsDefined(typeof(ExtensionAttribute), false))
                     {
                         type_def_extention_method.Add(type);
-                    }
-
-                    if (!type.IsAbstract() || !type.IsSealed()) continue;
-
-                    var fields = type.GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
-                    for (int i = 0; i < fields.Length; i++)
-                    {
-                        var field = fields[i];
-                        if ((typeof(IEnumerable<Type>)).IsAssignableFrom(field.FieldType))
-                        {
-                            var types = field.GetValue(null) as IEnumerable<Type>;
-                            if (types != null)
-                            {
-                                type_def_extention_method.AddRange(types.Where(t => t != null && t.IsDefined(typeof(ExtensionAttribute), false)));
-                            }
-                        }
-                    }
-
-                    var props = type.GetProperties(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
-                    for (int i = 0; i < props.Length; i++)
-                    {
-                        var prop = props[i];
-                        if (!prop.CanRead)
-                            continue;
-                        if ((typeof(IEnumerable<Type>)).IsAssignableFrom(prop.PropertyType))
-                        {
-                            var types = prop.GetValue(null, null) as IEnumerable<Type>;
-                            if (types != null)
-                            {
-                                type_def_extention_method.AddRange(types.Where(t => t != null && t.IsDefined(typeof(ExtensionAttribute), false)));
-                            }
-                        }
                     }
                 }
                 enumerator.Dispose();

@@ -15,6 +15,7 @@ import WebGLBackendRegisterAPI from "./mixins/register";
 import WebGLBackendSetToInvokeJSArgumentApi from "./mixins/setToInvokeJSArgument";
 import WebGLBackendSetToJSInvokeReturnApi from "./mixins/setToJSInvokeReturn";
 import WebGLBackendSetToJSOutArgumentAPI from "./mixins/setToJSOutArgument";
+import {WebGLFFIApi, WebGLRegsterApi} from "./pesapiImpl"
 
 declare const PUERTS_JS_RESOURCES: any;
 declare const wxRequire: any;
@@ -47,20 +48,23 @@ global.PuertsWebGL = {
             WebGLBackendSetToJSInvokeReturnApi(engine),
             WebGLBackendSetToJSOutArgumentAPI(engine),
             WebGLBackendRegisterAPI(engine),
+            WebGLRegsterApi(engine),
+            WebGLFFIApi(engine),
             {
                 // bridgeLog: true,
                 GetLibVersion: function () {
-                    return 34;
+                    return 35;
                 },
                 GetApiLevel: function () {
-                    return 34;
+                    return 35;
                 },
                 GetLibBackend: function () {
                     return 0;
                 },
                 CreateJSEngine: function () {
                     if (jsEngineReturned) {
-                        throw new Error("only one available jsEnv is allowed in WebGL mode");
+                        console.warn("only one available jsEnv is allowed in WebGL mode");
+                        return 1024;
                     }
                     jsEngineReturned = true;
                     return 1024;
@@ -68,6 +72,8 @@ global.PuertsWebGL = {
                 CreateJSEngineWithExternalEnv: function () { },
                 DestroyJSEngine: function () { },
                 GetLastExceptionInfo: function (isolate: IntPtr,/* out int */strlen: any) {
+                    if (engine.lastException === null) return 'null';
+                    if (typeof engine.lastException == 'undefined') return 'undefined';
                     return engine.JSStringToCSString(engine.lastException.stack, strlen);
                 },
                 LowMemoryNotification: function (isolate: IntPtr) { },
@@ -169,10 +175,10 @@ global.PuertsWebGL = {
                     return jsfunc.id;
                 },
                 Eval: function (isolate: IntPtr, codeString: CSString, path: string) {
-                    if (!global.eval) {
-                        throw new Error("eval is not supported");
-                    }
                     try {
+                        if (!global.eval) {
+                            throw new Error("eval is not supported");
+                        }
                         const code = engine.unityApi.UTF8ToString(codeString);
                         const result = global.eval(code);
                         // return getIntPtrManager().GetPointerForJSValue(result);
@@ -211,6 +217,8 @@ global.PuertsWebGL = {
                 GetFunctionLastExceptionInfo: function (_function: JSFunctionPtr, /*out int */length: number) {
                     const func = jsFunctionOrObjectFactory.getJSFunctionById(_function);
                     if (func instanceof JSFunction) {
+                        if (func.lastException === null) return 'null';
+                        if (typeof func.lastException == 'undefined') return 'undefined';
                         return engine.JSStringToCSString(func.lastException.stack || func.lastException.message || '', length);
                         
                     } else {
@@ -239,6 +247,9 @@ global.PuertsWebGL = {
                 },
                 GetJSStackTrace: function (isolate: IntPtr) {
                     return new Error().stack;
+                },
+                GetWebGLPapiEnvRef: function() {
+                    return 2048; // just not nullptr
                 }
             }
         )

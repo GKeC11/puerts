@@ -23,8 +23,13 @@
 #endif
 #ifdef WITH_IL2CPP_OPTIMIZATION
 #include "pesapi.h"
+#ifdef WITH_QUICKJS
+#include "CppObjectMapperQuickjs.h"
+#endif
+#ifdef WITH_V8
 #include "CppObjectMapper.h"
 #include "DataTransfer.h"
+#endif
 #endif
 
 #if WITH_NODEJS
@@ -91,6 +96,7 @@ enum JSEngineBackend
     V8          = 0,
     Node        = 1,
     QuickJS     = 2,
+    Auto = 3
 };
 
 class JSEngine
@@ -157,6 +163,13 @@ public:
 
     void LogicTick();
     
+    void TerminateExecution()
+    {
+#if !WITH_QUICKJS
+        MainIsolate->TerminateExecution();
+#endif
+    }
+    
     static void CallbackDataGarbageCollected(const v8::WeakCallbackInfo<FCallbackInfoWithFinalize>& Data);
 
     v8::Isolate* MainIsolate;
@@ -208,7 +221,12 @@ private:
     JSFunction* ModuleExecutor = nullptr;
     
 #ifdef WITH_IL2CPP_OPTIMIZATION
-    FCppObjectMapper CppObjectMapper;
+#ifdef WITH_QUICKJS
+    pesapi::qjsimpl::CppObjectMapper CppObjectMapperQjs;
+#endif
+#ifdef WITH_V8
+    FCppObjectMapper CppObjectMapperV8;
+#endif
 #endif
     
 public:
