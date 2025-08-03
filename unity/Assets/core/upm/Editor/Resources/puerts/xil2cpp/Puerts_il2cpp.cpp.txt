@@ -1,6 +1,6 @@
 ﻿/*
  * Tencent is pleased to support the open source community by making Puerts available.
- * Copyright (C) 2020 THL A29 Limited, a Tencent company.  All rights reserved.
+ * Copyright (C) 2020 Tencent.  All rights reserved.
  * Puerts is licensed under the BSD 3-Clause License, except for the third-party components listed in the file 'LICENSE' which may
  * be subject to their corresponding license terms. This file is subject to the terms and conditions defined in file 'LICENSE',
  * which is part of this source code package.
@@ -126,6 +126,8 @@ static MethodInfoHelper<Il2CppArray*(Il2CppString*)> g_ExtensionMethodGetHelper;
 
 static Il2CppClass* s_ParamArrayAttribute;
 static Il2CppClass* s_ExtensionAttribute;
+static Il2CppClass* s_UnityEngineObjectClass;
+static const MethodInfo* s_UnityEngineObjectOpEqualityMethodInfo;
 
 static bool RegisterType(Il2CppClass* klass);
 static bool ClassNotFoundCallback(const void* typeId)
@@ -620,13 +622,59 @@ static void MethodCallback(struct pesapi_ffi* apis, pesapi_callback_info info)
 static void GetterCallback(struct pesapi_ffi* apis, pesapi_callback_info info)
 {
     FieldWrapData* wrapData = static_cast<FieldWrapData*>(${invokePapi('get_userdata')}(info));
-    wrapData->Getter(apis, info, wrapData->FieldInfo, wrapData->Offset, wrapData->TypeInfo);
+    try
+    {
+        wrapData->Getter(apis, info, wrapData->FieldInfo, wrapData->Offset, wrapData->TypeInfo);
+    }
+    catch (Il2CppExceptionWrapper& exception)
+    {
+        Il2CppClass* klass = il2cpp::vm::Object::GetClass(exception.ex);
+        const MethodInfo* toStringMethod = il2cpp::vm::Class::GetMethodFromName(klass, "ToString", 0);
+
+        Il2CppException* outException = NULL;
+        Il2CppString* result = (Il2CppString*)il2cpp::vm::Runtime::Invoke(toStringMethod, exception.ex, NULL, &outException);
+        if (outException != NULL)
+        {
+            std::string err_info = "unknow c# execption for getter of ";
+            err_info += wrapData->FieldInfo->name;
+            apis->throw_by_string(info, err_info.c_str());
+        }
+        else
+        {
+            const Il2CppChar* utf16 = il2cpp::utils::StringUtils::GetChars(result);
+            std::string str = il2cpp::utils::StringUtils::Utf16ToUtf8(utf16);
+            apis->throw_by_string(info, str.c_str());
+        }
+    }
 }
 
 static void SetterCallback(struct pesapi_ffi* apis, pesapi_callback_info info)
 {
     FieldWrapData* wrapData = static_cast<FieldWrapData*>(${invokePapi('get_userdata')}(info));
-    wrapData->Setter(apis, info, wrapData->FieldInfo, wrapData->Offset, wrapData->TypeInfo);
+    try
+    {
+        wrapData->Setter(apis, info, wrapData->FieldInfo, wrapData->Offset, wrapData->TypeInfo);
+    }
+    catch (Il2CppExceptionWrapper& exception)
+    {
+        Il2CppClass* klass = il2cpp::vm::Object::GetClass(exception.ex);
+        const MethodInfo* toStringMethod = il2cpp::vm::Class::GetMethodFromName(klass, "ToString", 0);
+
+        Il2CppException* outException = NULL;
+        Il2CppString* result = (Il2CppString*)il2cpp::vm::Runtime::Invoke(toStringMethod, exception.ex, NULL, &outException);
+        if (outException != NULL)
+        {
+            std::string err_info = "unknow c# execption for setter of ";
+            err_info += wrapData->FieldInfo->name;
+            apis->throw_by_string(info, err_info.c_str());
+        }
+        else
+        {
+            const Il2CppChar* utf16 = il2cpp::utils::StringUtils::GetChars(result);
+            std::string str = il2cpp::utils::StringUtils::Utf16ToUtf8(utf16);
+            apis->throw_by_string(info, str.c_str());
+        }
+    }
 }
 
 void GetFieldValue(void *ptr, FieldInfo *field, size_t offset, void *value)
@@ -1161,7 +1209,7 @@ handle_underlying:
                 if (IsDelegate(klass))
                 {
                     JsClassInfoHeader* jsClassInfo = (JsClassInfoHeader*)pesapi_get_class_data(klass, true);
-                    if (!jsClassInfo)
+                    if (!jsClassInfo || !jsClassInfo->DelegateBridge)
                     {
                         Exception::Raise(Exception::GetInvalidOperationException("call not load type of delegate"));
                     }
@@ -1308,6 +1356,17 @@ handle_underlying:
     return Object::Box(klass, toBox);
 }
 
+static bool IsDeadUnityEngineObject(Il2CppObject *obj)
+{
+    if (!Class::IsAssignableFrom(s_UnityEngineObjectClass, obj->klass))
+    {
+        return false;
+    }
+
+    typedef bool (*NativeFuncPtr)(Il2CppObject* lhs, Il2CppObject* rhs, const MethodInfo* method);
+    return ((NativeFuncPtr)s_UnityEngineObjectOpEqualityMethodInfo->methodPointer)(obj, nullptr, s_UnityEngineObjectOpEqualityMethodInfo);
+}
+
 pesapi_value CSRefToJsValue(struct pesapi_ffi* apis, pesapi_env env, Il2CppClass *targetClass, Il2CppObject* obj)
 {
     if (targetClass == il2cpp_defaults.void_class ) return ${invokePapi('create_undefined')}(env);
@@ -1346,10 +1405,14 @@ pesapi_value CSRefToJsValue(struct pesapi_ffi* apis, pesapi_env env, Il2CppClass
     }
 
     jsVal = TryTranslateBuiltin(apis, env, obj);
-
     if (jsVal)
     {
         return jsVal;
+    }
+
+    if (IsDeadUnityEngineObject(obj))
+    {
+        return apis->create_null(env);
     }
 
     auto objClass = obj && obj->klass ? obj->klass : targetClass;
@@ -2310,6 +2373,7 @@ static void* OnCsObjectEnter(void* ptr, JsClassInfo* classInfo, JsEnvPrivate* js
         {
             return reinterpret_cast<void*>(jsEnvPrivate->RefCSObject(Object::Box(classInfo->TypeId, ptr)));
         }
+        return nullptr;
     }
     else
     {
@@ -2611,6 +2675,39 @@ static bool RegisterType(Il2CppClass* klass)
         {
             std::string signature = GetMethodSignature(invoke, true, false);
             classInfo->DelegateBridge = FindBridgeFunc(signature.c_str(), Class::IsInflated(klass));
+            if (!classInfo->DelegateBridge)
+            {
+                signature = "";
+                auto IsSharedable = [](const Il2CppType* type) -> bool
+                    {
+                        if (type->byref) return false;
+                        if (type->type == IL2CPP_TYPE_VOID) return true;
+                        Il2CppClass* paramClass = Class::FromIl2CppType(type, false);
+                        Class::Init(paramClass);
+                        if (Class::IsValuetype(paramClass)) return false;
+                        return true;
+                    };
+
+                if (IsSharedable(invoke->return_type))
+                {
+                    signature += invoke->return_type->type == IL2CPP_TYPE_VOID ? "v" : "o";
+                    bool isParamsSharedable = true;
+                    for (uint32_t i = 0; i < invoke->parameters_count; ++i)
+                    {
+                        const Il2CppType* type = Method::GetParam(invoke, i);
+                        if (!IsSharedable(type))
+                        {
+                            isParamsSharedable = false;
+                            break;
+                        }
+                        signature += "o";
+                    }
+                    if (isParamsSharedable && signature.size() <= 10)
+                    {
+                        classInfo->DelegateBridge = FindBridgeFunc(signature.c_str(), Class::IsInflated(klass));
+                    }
+                }
+            }
         }
         catch (Il2CppExceptionWrapper& exception)
         {
@@ -2796,6 +2893,10 @@ void InitialPuerts(pesapi_func_ptr* func_array)
     
     puerts::s_ParamArrayAttribute = Class::FromName(il2cpp_defaults.corlib, "System", "ParamArrayAttribute");
     puerts::s_ExtensionAttribute = Class::FromName(il2cpp_defaults.corlib, "System.Runtime.CompilerServices", "ExtensionAttribute");
+    puerts::s_UnityEngineObjectClass = il2cpp::vm::Class::FromName(il2cpp::vm::Assembly::GetImage(il2cpp::vm::Assembly::Load("UnityEngine.dll")), "UnityEngine", "Object");
+    IL2CPP_ASSERT(puerts::s_UnityEngineObjectClass);
+    puerts::s_UnityEngineObjectOpEqualityMethodInfo = Class::GetMethodFromName(puerts::s_UnityEngineObjectClass, "op_Equality", 2);
+    IL2CPP_ASSERT(puerts::s_UnityEngineObjectOpEqualityMethodInfo);
 }
 
 void AddPendingKillScriptObjects(struct pesapi_ffi* apis, puerts::JsEnvPrivate* jsEnvPrivate, pesapi_value_ref valueRef)

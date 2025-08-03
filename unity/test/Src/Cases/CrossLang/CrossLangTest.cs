@@ -146,7 +146,7 @@ namespace Puerts.UnitTest
         [UnityEngine.Scripting.Preserve] A = 1,
         [UnityEngine.Scripting.Preserve] B = 213
     }
-   
+
     [UnityEngine.Scripting.Preserve]
     public class CrossLangTestHelper
     {
@@ -460,6 +460,7 @@ namespace Puerts.UnitTest
             AssertAndPrint("CSArrayBufferTestProp", arrayBufferTestProp.Bytes[0], 192);
             AssertAndPrint("CSArrayBufferTestFieldStatic", arrayBufferTestFieldStatic.Bytes[0], 192);
             AssertAndPrint("CSArrayBufferTestPropStatic", arrayBufferTestPropStatic.Bytes[0], 192);
+            arrayBufferTestPropStatic.Bytes[0] = 193;
         }
         /**
         * 判断引用即可
@@ -886,7 +887,9 @@ namespace Puerts.UnitTest
                     testHelper.arrayBufferTestProp = new Uint8Array([192]).buffer
                     TestHelper.arrayBufferTestFieldStatic = new Uint8Array([192]).buffer
                     TestHelper.arrayBufferTestPropStatic = new Uint8Array([192]).buffer
+                    const tmp = TestHelper.arrayBufferTestPropStatic;
                     testHelper.ArrayBufferTestCheckMemberValue();
+                    assertAndPrint('JSArrayBufferShouldBeCopied', new Uint8Array(tmp)[0], 192);
                 })()
             ");
             jsEnv.Tick();
@@ -1347,5 +1350,31 @@ namespace Puerts.UnitTest
             ;
             Assert.AreEqual("9999", cb1(9999));
         }
+
+#if !PUERTS_GENERAL
+        [Test]
+        public void PassDestroyedUnityObjectTest()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            jsEnv.UsingFunc<UnityEngine.Object, bool>();
+            // 无效的UnityEninge.Object会以null的形式传入脚本
+            var is_null = jsEnv.Eval<Func<UnityEngine.Object, bool>>(@"
+function __PDUOTF(o){
+    return o === null;
+}
+__PDUOTF;");
+            Assert.AreEqual(true, is_null(null));
+            UnityEngine.Texture2D tex2D = new UnityEngine.Texture2D(1, 1);
+            try
+            {
+                Assert.AreEqual(false, is_null(tex2D));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(tex2D);
+            }
+            Assert.AreEqual(true, is_null(tex2D));
+        }
+#endif
     }
 }

@@ -1,6 +1,6 @@
 /*
 * Tencent is pleased to support the open source community by making Puerts available.
-* Copyright (C) 2020 THL A29 Limited, a Tencent company.  All rights reserved.
+* Copyright (C) 2020 Tencent.  All rights reserved.
 * Puerts is licensed under the BSD 3-Clause License, except for the third-party components listed in the file 'LICENSE' which may be subject to their corresponding license terms. 
 * This file is subject to the terms and conditions defined in file 'LICENSE', which is part of this source code package.
 */
@@ -40,6 +40,7 @@ function genBridge(bridgeInfo, isOptimizeSize) {
     var parameterSignatures = il2cpp_snippets.listToJsArray(bridgeInfo.ParameterSignatures);
     let hasVarArgs = parameterSignatures.length > 0 && parameterSignatures[parameterSignatures.length -1][0] == 'V'
     return t`
+// ${bridgeInfo.CsName}
 static ${il2cpp_snippets.SToCPPType(bridgeInfo.ReturnSignature)} b_${bridgeInfo.Signature}(void* target, ${parameterSignatures.map((S, i) => `${il2cpp_snippets.SToCPPType(S)} p${i}`).map(s => `${s}, `).join('')}MethodInfo* method) {
     // PLog("Running b_${bridgeInfo.Signature}");
 

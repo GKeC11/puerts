@@ -1,6 +1,6 @@
 ﻿/*
 * Tencent is pleased to support the open source community by making Puerts available.
-* Copyright (C) 2020 THL A29 Limited, a Tencent company.  All rights reserved.
+* Copyright (C) 2020 Tencent.  All rights reserved.
 * Puerts is licensed under the BSD 3-Clause License, except for the third-party components listed in the file 'LICENSE' which may be subject to their corresponding license terms. 
 * This file is subject to the terms and conditions defined in file 'LICENSE', which is part of this source code package.
 */
@@ -49,6 +49,12 @@ namespace Puerts.UnitTest
         public static string Extension2<T1, T2>(this T1 a, T2 b) where T1 : ExtensionTestHelper where T2 : ExtensionTestHelper1
         {
             return (string.Format("Extension2<{0},{1}>", typeof(T1), typeof(T2)));
+        }
+
+        [UnityEngine.Scripting.Preserve]
+        public static string Extension3<T>(this T a, string b) where T : ExtensionTestHelper
+        {
+            return b;
         }
     }
 
@@ -111,6 +117,7 @@ namespace Puerts.UnitTest
             Assert.AreEqual(res.ToString(), "Puerts.UnitTest.ExtensionTestHelper");
         }
 
+        [Test]
         public void ExtensionGenerateBaseTest_1()
         {
             var jsEnv = UnitTestEnv.GetEnv();
@@ -122,6 +129,20 @@ namespace Puerts.UnitTest
                 })()
             ");
             Assert.AreEqual(res.ToString(), "Puerts.UnitTest.ExtensionTestHelper");
+        }
+
+        [Test]
+        public void ExtensionGenerateBaseTest_3()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            var res = jsEnv.Eval<string>(@"
+                (function() {
+                    let obj = new CS.Puerts.UnitTest.ExtensionTestHelper();
+                    let res = obj.Extension3('123');
+                    return res;
+                })()
+            ");
+            Assert.AreEqual(res, "123");
         }
 
         [Test]
