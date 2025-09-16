@@ -1,2 +1,5 @@
 third-party/v8_8.4.371.19/Lib/Win64/wee8.lib filter=lfs diff=lfs merge=lfs -text
 third-party/v8_8.4.371.19/Lib/Win64MD/wee8.lib filter=lfs diff=lfs merge=lfs -text
+third-party/v8_11.8.172/Lib/Win32/wee8.lib filter=lfs diff=lfs merge=lfs -text
+third-party/v8_11.8.172/Lib/Win64/wee8.lib filter=lfs diff=lfs merge=lfs -text
+third-party/v8_11.8.172/Lib/Win64MD/wee8.lib filter=lfs diff=lfs merge=lfs -text
